@@ -1,0 +1,409 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dynamic ER Triage Simulation</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        :root {
+            /* Modern Dark Blue Gradient */
+            --bg-gradient: linear-gradient(135deg, #091221 0%, #0d2242 50%, #13325e 100%);
+            /* Glassmorphism Variables */
+            --glass-bg: rgba(16, 30, 50, 0.55);
+            --glass-border: rgba(255, 255, 255, 0.1);
+            --glass-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.3);
+            
+            --text: #e0e0e0;
+            --icu: #ff5252; --er: #fb8c00; --ft: #4caf50;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, sans-serif;
+            background: var(--bg-gradient);
+            background-attachment: fixed; /* Keeps gradient stable when scrolling */
+            color: var(--text);
+            margin: 0; padding: 20px;
+        }
+        
+        h1, h2, h3, h4 { color: #fff; margin-top: 0; font-weight: 500; }
+        h1 { border-bottom: 1px solid var(--glass-border); padding-bottom: 15px; margin-bottom: 25px;}
+        
+        .grid-container {
+            display: grid;
+            grid-template-columns: 320px 1fr;
+            gap: 25px;
+        }
+        
+        /* The Glassmorphism Panel Class */
+        .panel {
+            background: var(--glass-bg);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid var(--glass-border);
+            border-radius: 12px;
+            padding: 20px; 
+            box-shadow: var(--glass-shadow);
+            margin-bottom: 20px;
+        }
+        
+        label { display: block; margin-bottom: 5px; font-size: 0.9em; color: #cbd5e1;}
+        
+        /* Frosted Inputs */
+        input, select, button {
+            width: 100%; padding: 10px; border-radius: 6px;
+            border: 1px solid var(--glass-border); 
+            background: rgba(0, 0, 0, 0.2); 
+            color: white;
+            box-sizing: border-box; margin-bottom: 15px; font-family: inherit;
+            transition: all 0.3s ease;
+        }
+        input:focus, select:focus {
+            outline: none;
+            border-color: #3b82f6;
+            background: rgba(0, 0, 0, 0.4);
+        }
+        
+        /* Modern Buttons */
+        button { background-color: rgba(59, 130, 246, 0.8); font-weight: bold; cursor: pointer; border: 1px solid rgba(255,255,255,0.1); }
+        button:hover { background-color: rgba(59, 130, 246, 1); transform: translateY(-1px); box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3); }
+        
+        /* Time Button Styling */
+        .time-wrapper { 
+            background: var(--glass-bg); backdrop-filter: blur(12px);
+            padding: 15px; border-radius: 12px; border: 1px solid var(--glass-border); 
+            box-shadow: var(--glass-shadow); margin-top: 5px; 
+        }
+        .btn-time { background-color: rgba(34, 197, 94, 0.8); padding: 15px; font-size: 1.1em; margin-bottom: 10px; }
+        .btn-time:hover { background-color: rgba(34, 197, 94, 1); box-shadow: 0 4px 12px rgba(34, 197, 94, 0.3); }
+        .time-desc { font-size: 0.85em; color: #94a3b8; line-height: 1.5; text-align: left; }
+        .time-desc strong { color: #f8fafc; }
+        
+        /* Glass Tables */
+        table { width: 100%; border-collapse: collapse; margin-top: 5px; font-size: 0.9em; }
+        th, td { padding: 10px 12px; text-align: left; border-bottom: 1px solid var(--glass-border); }
+        th { background-color: rgba(0, 0, 0, 0.2); color: #94a3b8; font-weight: 500; }
+        tr:hover td { background-color: rgba(255, 255, 255, 0.05); }
+        .alert-row { background-color: rgba(255, 82, 82, 0.15) !important; border-left: 4px solid var(--icu); }
+        
+        /* Queues */
+        .queues-wrapper { display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; }
+        .unit-card { 
+            padding: 15px; 
+            background: rgba(0,0,0,0.2); /* Slightly darker than panel for contrast */
+            border-radius: 8px; 
+            border-top: 4px solid; 
+        }
+        #icu-col { border-color: var(--icu); }
+        #er-col { border-color: var(--er); }
+        #ft-col { border-color: var(--ft); }
+        .status-badge { font-size: 0.8em; background: rgba(255,255,255,0.1); padding: 4px 8px; border-radius: 4px; float: right; border: 1px solid var(--glass-border); }
+    </style>
+</head>
+<body>
+
+    <h1>Dynamic Emergency Triage System</h1>
+    
+    <div class="grid-container">
+        <div>
+            <div class="panel">
+                <h3>1. Unit Capacities (μ)</h3>
+                <label>ICU (Patients/hr):</label>
+                <input type="number" id="cap-icu" value="0.5" step="0.1">
+                <label>ER (Patients/hr):</label>
+                <input type="number" id="cap-er" value="5.0" step="0.5">
+                <label>Fast Track (Patients/hr):</label>
+                <input type="number" id="cap-ft" value="12.0" step="1.0">
+                <button onclick="updateCapacities()">Update Capacities</button>
+            </div>
+
+            <div class="panel">
+                <h3>2. Add New Patient</h3>
+                <label>Patient ID:</label>
+                <input type="text" id="p-id" placeholder="e.g., P11">
+                <label>Initial Triage ESI:</label>
+                <select id="p-esi">
+                    <option value="1">ESI 1 (Critical - S: 8.8)</option>
+                    <option value="2">ESI 2 (High Urgency - S: 6.8)</option>
+                    <option value="3">ESI 3 (Moderate - S: 4.8)</option>
+                    <option value="4">ESI 4 (Low Urgency - S: 2.8)</option>
+                    <option value="5">ESI 5 (Minor - S: 0.8)</option>
+                </select>
+                <button onclick="uiAddPatient()">Register & Route</button>
+            </div>
+
+            <div class="time-wrapper">
+                <button class="btn-time" onclick="advanceTime(15)">Forward Time (15 Mins) ⏱️</button>
+                <div class="time-desc">
+                    <strong>System Action:</strong> Advances the simulation clock. Doctors will treat and discharge current patients based on capacity. Waiting patients will experience delayed care, triggering the deterioration equation.
+                </div>
+            </div>
+        </div>
+
+        <div>
+            <div class="panel">
+                <h3>Clinical Trends: Average Hospital Severity</h3>
+                <div style="position: relative; height: 180px; width: 100%;">
+                    <canvas id="trendChart"></canvas>
+                </div>
+            </div>
+
+            <div class="panel">
+                <h3>Live Unit Queues & Status</h3>
+                <div class="queues-wrapper">
+                    <div class="unit-card" id="icu-col">
+                        <h4>ICU Queue <span class="status-badge" id="stat-icu">Est Wait: 0m</span></h4>
+                        <table id="tbl-icu">
+                            <tr><th>ID</th><th>Time Waited</th><th>S</th><th>ESI</th></tr>
+                        </table>
+                    </div>
+                    <div class="unit-card" id="er-col">
+                        <h4>ER Queue <span class="status-badge" id="stat-er">Est Wait: 0m</span></h4>
+                        <table id="tbl-er">
+                            <tr><th>ID</th><th>Time Waited</th><th>S</th><th>ESI</th></tr>
+                        </table>
+                    </div>
+                    <div class="unit-card" id="ft-col">
+                        <h4>Fast Track <span class="status-badge" id="stat-ft">Est Wait: 0m</span></h4>
+                        <table id="tbl-ft">
+                            <tr><th>ID</th><th>Time Waited</th><th>S</th><th>ESI</th></tr>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <div class="panel">
+                <h3>Patient Log & Discharges</h3>
+                <table>
+                    <thead>
+                        <tr><th>Arrival Time</th><th>Patient ID</th><th>Initial ESI</th><th>Arrival S</th><th>Unit / Status</th></tr>
+                    </thead>
+                    <tbody id="assignment-log"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // --- 1. SYSTEM VARIABLES ---
+        let capacities = { ICU: 0.5, ER: 5.0, FT: 12.0 };
+        const BETA1 = { ICU: 2.0, ER: 1.2, FT: 0.2 };
+        const BETA2 = 0.06;
+        const GAMMA = 0.02; // Deterioration rate
+        
+        let queues = { ICU: [], ER: [], FT: [] };
+        let treatmentTimers = { ICU: 0, ER: 0, FT: 0 }; 
+        let globalTime = 120; // Start 2 hours into shift
+        
+        // Graph Data
+        let timeLabels = [globalTime];
+        let severityData = [0];
+        let chart;
+
+        // --- 2. CLINICAL LOGIC ---
+        function mapEsiToSeverity(esi) {
+            const map = { 1: 8.8, 2: 6.8, 3: 4.8, 4: 2.8, 5: 0.8 };
+            return map[esi] || 0.8;
+        }
+
+        function mapSeverityToEsi(s) {
+            if (s >= 8.0) return 1;
+            if (s >= 6.0) return 2;
+            if (s >= 4.0) return 3;
+            if (s >= 2.0) return 4;
+            return 5;
+        }
+
+        function calculateEstimatedWait(unit) {
+            if(capacities[unit] <= 0) return 999;
+            return Math.round(queues[unit].length * (60 / capacities[unit]));
+        }
+
+        // --- 3. CORE ALGORITHMS ---
+        function routePatient(id, severity, initialEsi, injectWaitTime = 0) {
+            const wICU = calculateEstimatedWait('ICU');
+            const wER = calculateEstimatedWait('ER');
+            const wFT = calculateEstimatedWait('FT');
+
+            // Utility Math
+            const uICU = (BETA1.ICU * severity) - (BETA2 * wICU);
+            const uER = (BETA1.ER * severity) - (BETA2 * wER);
+            const uFT = (BETA1.FT * severity) - (BETA2 * wFT);
+
+            // SoftMax
+            const expICU = Math.exp(uICU);
+            const expER = Math.exp(uER);
+            const expFT = Math.exp(uFT);
+            const sumExp = expICU + expER + expFT;
+
+            const probs = { ICU: expICU/sumExp, ER: expER/sumExp, FT: expFT/sumExp };
+            let assignedUnit = Object.keys(probs).reduce((a, b) => probs[a] > probs[b] ? a : b);
+
+            let currentS = severity + (GAMMA * injectWaitTime);
+            let isAlert = mapSeverityToEsi(currentS) < initialEsi;
+
+            let patient = { 
+                id: id, 
+                initialEsi: initialEsi, 
+                severity: currentS, 
+                timeWaiting: injectWaitTime, 
+                alert: isAlert 
+            };
+            
+            queues[assignedUnit].push(patient);
+
+            const arrivalTime = globalTime - injectWaitTime; 
+            
+            const logTable = document.getElementById('assignment-log');
+            logTable.innerHTML = `<tr>
+                <td style="color: #94a3b8;">Shift +${arrivalTime}m</td>
+                <td><strong style="color: #fff;">${id}</strong></td>
+                <td>ESI ${initialEsi}</td>
+                <td>${severity.toFixed(2)}</td>
+                <td style="color: var(--${assignedUnit.toLowerCase()})">Assigned: ${assignedUnit}</td>
+            </tr>` + logTable.innerHTML;
+        }
+
+        function advanceTime(minutes) {
+            globalTime += minutes;
+            let totalSeverity = 0;
+            let patientCount = 0;
+
+            ['ICU', 'ER', 'FT'].forEach(unit => {
+                treatmentTimers[unit] += minutes;
+                const timeToTreatOnePatient = 60 / capacities[unit];
+
+                // Discharge patients based on capacity
+                while (queues[unit].length > 0 && treatmentTimers[unit] >= timeToTreatOnePatient) {
+                    let curedPatient = queues[unit].shift(); 
+                    treatmentTimers[unit] -= timeToTreatOnePatient; 
+                    
+                    const logTable = document.getElementById('assignment-log');
+                    logTable.innerHTML = `<tr style="background:rgba(76, 175, 80, 0.15)">
+                        <td style="color: #94a3b8;">Shift +${globalTime}m</td>
+                        <td><strong style="color: #fff;">${curedPatient.id}</strong></td>
+                        <td colspan="3">✅ Discharged from ${unit} Queue</td>
+                    </tr>` + logTable.innerHTML;
+                }
+
+                // Deteriorate remaining patients
+                queues[unit].forEach(p => {
+                    p.timeWaiting += minutes;
+                    p.severity += (GAMMA * minutes);
+                    
+                    if (mapSeverityToEsi(p.severity) < p.initialEsi) {
+                        p.alert = true;
+                    }
+
+                    totalSeverity += p.severity;
+                    patientCount++;
+                });
+            });
+
+            // Update Chart Data
+            timeLabels.push(globalTime);
+            let avgSev = patientCount > 0 ? (totalSeverity / patientCount) : 0;
+            severityData.push(avgSev);
+            chart.update();
+
+            updateQueuesUI();
+        }
+
+        // --- 4. UI CONTROLLERS ---
+        function updateCapacities() {
+            capacities.ICU = parseFloat(document.getElementById('cap-icu').value);
+            capacities.ER = parseFloat(document.getElementById('cap-er').value);
+            capacities.FT = parseFloat(document.getElementById('cap-ft').value);
+            updateQueuesUI(); 
+        }
+
+        function uiAddPatient() {
+            const id = document.getElementById('p-id').value || 'P_New';
+            const esi = parseInt(document.getElementById('p-esi').value);
+            routePatient(id, mapEsiToSeverity(esi), esi, 0); 
+            updateQueuesUI();
+            
+            let total = 0; let count = 0;
+            ['ICU', 'ER', 'FT'].forEach(u => queues[u].forEach(p => { total += p.severity; count++; }));
+            severityData[severityData.length - 1] = total / count;
+            chart.update();
+
+            document.getElementById('p-id').value = '';
+        }
+
+        function updateQueuesUI() {
+            ['ICU', 'ER', 'FT'].forEach(unit => {
+                document.getElementById(`stat-${unit.toLowerCase()}`).innerText = `Est. Wait: ${calculateEstimatedWait(unit)}m`;
+                
+                const table = document.getElementById(`tbl-${unit.toLowerCase()}`);
+                table.innerHTML = `<tr><th>ID</th><th>Waited</th><th>S</th><th>ESI</th></tr>`;
+                
+                queues[unit].forEach(p => {
+                    let currentEsi = mapSeverityToEsi(p.severity);
+                    let rowClass = p.alert ? "alert-row" : "";
+                    let alertIcon = p.alert ? " 🚨" : "";
+                    
+                    table.innerHTML += `<tr class="${rowClass}">
+                        <td><strong style="color: #fff;">${p.id}</strong></td>
+                        <td>${p.timeWaiting}m</td>
+                        <td>${p.severity.toFixed(2)}</td>
+                        <td><strong style="color: #fff;">${currentEsi}</strong>${alertIcon}</td>
+                    </tr>`;
+                });
+            });
+        }
+
+        // --- 5. INITIALIZATION ---
+        window.onload = () => {
+            // Set Chart.js defaults for dark theme
+            Chart.defaults.color = '#cbd5e1';
+            Chart.defaults.borderColor = 'rgba(255,255,255,0.1)';
+            
+            const ctx = document.getElementById('trendChart').getContext('2d');
+            chart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: timeLabels,
+                    datasets: [{
+                        label: 'Avg System Severity',
+                        data: severityData,
+                        borderColor: '#3b82f6', 
+                        backgroundColor: 'rgba(59, 130, 246, 0.2)',
+                        borderWidth: 2, fill: true, tension: 0.4,
+                        pointBackgroundColor: '#fff',
+                        pointBorderColor: '#3b82f6'
+                    }]
+                },
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    scales: { 
+                        y: { grid: { color: 'rgba(255,255,255,0.05)' } }, 
+                        x: { grid: { color: 'rgba(255,255,255,0.05)' } } 
+                    },
+                    plugins: { legend: { labels: { font: { family: "'Segoe UI', sans-serif" } } } },
+                    animation: { duration: 500 }
+                }
+            });
+
+            // Mid-Shift initial patient load (ALL 10 Patients from Task 2)
+            routePatient('P1', 8.8, 1, 120); 
+            routePatient('P2', 7.5, 2, 105);  
+            routePatient('P3', 6.8, 2, 60);  
+            routePatient('P4', 5.5, 3, 45);  
+            routePatient('P5', 4.8, 3, 30);  
+            routePatient('P6', 4.2, 3, 15);  
+            routePatient('P7', 3.5, 4, 15);  
+            routePatient('P8', 2.8, 4, 10);   
+            routePatient('P9', 1.5, 5, 5);   
+            routePatient('P10', 0.8, 5, 0);   
+
+            let total = 0; let count = 0;
+            ['ICU', 'ER', 'FT'].forEach(u => queues[u].forEach(p => { total += p.severity; count++; }));
+            severityData[0] = total / count;
+            chart.update();
+
+            updateQueuesUI();
+        };
+    </script>
+</body>
+</html>
